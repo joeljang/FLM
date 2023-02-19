@@ -19,3 +19,17 @@
 - Supports all kinds of metrics (ROUGE, BLEU, MAUVE, etc.)
 
 4️⃣ Log the training run via **wandb**
+
+### Install Dependencies
+```
+# install torch with the correct cuda version, check nvcc --version
+pip install torch --extra-index-url https://download.pytorch.org/whl/cu116 --upgrade
+# install Hugging Face Libraries
+pip install "transformers==4.26.0" "datasets==2.9.0" "accelerate==0.16.0" "evaluate==0.4.0" --upgrade
+# install deepspeed and ninja for jit compilations of kernels
+pip install "deepspeed==0.8.0" ninja --upgrade
+# install additional dependencies needed for training
+pip install rouge-score nltk py7zr tensorboard
+```
+
+This code-base is heavily based on [https://www.philschmid.de/fine-tune-flan-t5-deepspeed](https://www.philschmid.de/fine-tune-flan-t5-deepspeed)
