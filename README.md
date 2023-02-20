@@ -1,6 +1,6 @@
 # Fine-tuning (Large) Language Models
 
-**Key Features 🔑**
+**Key Features (~under progress) 🔑**
 
 1️⃣ Full use of computational resources (GPU Utilization)
 
