@@ -1,6 +1,6 @@
-# Fine-tuning (Large) Language Models
+# Fine-tuning (Large) Language Models (under progress)
 
-**Key Features (~under progress) 🔑**
+**Key Features 🔑**
 
 1️⃣ Full use of computational resources (GPU Utilization)
 
@@ -13,10 +13,11 @@
 - Allows instruction tuning & dynamic validation during training (beats T0 by +00%)
 - Support all pre-training objective & fine-tuning objective (e.g. MLM, SSM, etc.)
 
-3️⃣ Evaluate LLMs (even 175B LMs) on any kind of evaluation datasets (MMLU, BigBench, etc.) using any kind of verbalizers
+3️⃣ Evaluate LLMs (even 175B LMs) on any kind of evaluation datasets (MMLU, BigBench, etc.) with [FlexGen](https://github.com/FMInference/FlexGen) support
 
-- Supports multiple types of verbalizer techniques
-- Supports all kinds of metrics (ROUGE, BLEU, MAUVE, etc.)
+- Support inference with both decoder-only LMs & encoder-decoder LMs
+- Supports multiple types of verbalizer techniques (calibrazation, etc.)
+- Supports all kinds of generative metrics (ROUGE, BLEU, MAUVE, etc.)
 
 4️⃣ Log the training run via **wandb**
 
