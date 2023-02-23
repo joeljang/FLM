@@ -33,3 +33,16 @@ pip install rouge-score nltk py7zr tensorboard
 ```
 
 This code-base is heavily based on [https://www.philschmid.de/fine-tune-flan-t5-deepspeed](https://www.philschmid.de/fine-tune-flan-t5-deepspeed)
+
+### Basic Command
+```
+deepspeed --num_gpus=4 run.py \
+    --model_id google/flan-t5-xxl \
+    --dataset_path data \
+    --epochs 1 \
+    --per_device_train_batch_size 32 \
+    --per_device_eval_batch_size 32 \
+    --generation_max_length 129 \
+    --lr 1e-4 \
+    --deepspeed gpu_configs/z3_bf16.json
+```
