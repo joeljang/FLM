@@ -1,0 +1,11 @@
+{
+    "model_id": "google/flan-t5-xl",
+    "mode": "mlm",
+    "train_dataset": "mc4",
+    "train_dataset_config": "yo",
+    "noise_density": 0.15,
+    "mean_noise_span_length": 3,
+    "input_length": 512,
+    "num_instances": 10000,
+    "save_dataset_path": "data/basic_pt"
+}

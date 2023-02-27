@@ -21,7 +21,7 @@
 
 4️⃣ Log the training run via **wandb**
 
-### Install Dependencies
+### 0. Install Dependencies
 ```
 # install torch with the correct cuda version, check nvcc --version
 pip install torch --extra-index-url https://download.pytorch.org/whl/cu116 --upgrade
@@ -31,13 +31,27 @@ pip install "transformers==4.26.0" "datasets==2.9.0" "accelerate==0.16.0" "evalu
 pip install "deepspeed==0.8.0" ninja --upgrade
 # install additional dependencies needed for training
 pip install rouge-score nltk py7zr tensorboard
-# install promptsource for making prompoted training instances
+# install promptsource for making prompted training instances
 pip install promptsource
+pip install sentencepiece
 ```
 
 This code-base is heavily based on [https://www.philschmid.de/fine-tune-flan-t5-deepspeed](https://www.philschmid.de/fine-tune-flan-t5-deepspeed)
 
-### Basic Command
+### 1. Dataset Preparation
+Run the following code for preparing pretraining data 
+```
+python make_dataset_pt.py --config dataset_configs/pretrain/ko.json
+```
+
+Run the following code for preparing fine-tuning & evaluation data
+```
+python make_dataset_pt.py --config dataset_configs/finetune/basic.json
+```
+
+Let the code do its magic :star:. 
+
+### 2. Now, train the model
 ```
 deepspeed --num_gpus=4 run.py \
     --model_id google/flan-t5-xxl \
@@ -49,3 +63,4 @@ deepspeed --num_gpus=4 run.py \
     --lr 1e-4 \
     --deepspeed gpu_configs/z3_bf16.json
 ```
+

@@ -1,0 +1,11 @@
+{
+    "model_id": "bigscience/mt0-small",
+    "mode": "mlm",
+    "train_dataset": "mc4",
+    "train_dataset_config": "ko",
+    "noise_density": 0.15,
+    "mean_noise_span_length": 3,
+    "input_length": 512,
+    "num_instances": 1000,
+    "save_dataset_path": "data/basic_pt"
+}
