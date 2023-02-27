@@ -1,6 +1,6 @@
-# Fine-tuning (Large) Language Models
+# Fine-tuning (Large) Language Models (under progress ⏳)
 
-**Key Features (~under progress) 🔑**
+### Key Features 🔑
 
 1️⃣ Full use of computational resources (GPU Utilization)
 
@@ -13,10 +13,11 @@
 - Allows instruction tuning & dynamic validation during training (beats T0 by +00%)
 - Support all pre-training objective & fine-tuning objective (e.g. MLM, SSM, etc.)
 
-3️⃣ Evaluate LLMs (even 175B LMs) on any kind of evaluation datasets (MMLU, BigBench, etc.) using any kind of verbalizers
+3️⃣ Evaluate LLMs (even 175B LMs) on any kind of evaluation datasets (MMLU, BigBench, etc.) with [FlexGen](https://github.com/FMInference/FlexGen) support
 
-- Supports multiple types of verbalizer techniques
-- Supports all kinds of metrics (ROUGE, BLEU, MAUVE, etc.)
+- Support inference with both decoder-only LMs & encoder-decoder LMs
+- Supports multiple types of verbalizer techniques (calibrazation, etc.)
+- Supports all kinds of generative metrics (ROUGE, BLEU, MAUVE, etc.)
 
 4️⃣ Log the training run via **wandb**
 
@@ -35,3 +36,16 @@ pip install promptsource
 ```
 
 This code-base is heavily based on [https://www.philschmid.de/fine-tune-flan-t5-deepspeed](https://www.philschmid.de/fine-tune-flan-t5-deepspeed)
+
+### Basic Command
+```
+deepspeed --num_gpus=4 run.py \
+    --model_id google/flan-t5-xxl \
+    --dataset_path data \
+    --epochs 1 \
+    --per_device_train_batch_size 32 \
+    --per_device_eval_batch_size 32 \
+    --generation_max_length 129 \
+    --lr 1e-4 \
+    --deepspeed gpu_configs/z3_bf16.json
+```
