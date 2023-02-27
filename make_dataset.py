@@ -1,79 +1,89 @@
-# experiment config
-model_id = "google/flan-t5-xxl" # Hugging Face Model Id
-dataset_id = "cnn_dailymail" # Hugging Face Dataset Id
-dataset_config = "3.0.0" # config/verison of the dataset
-save_dataset_path = "data" # local path to save processed dataset
-text_column = "article" # column of input text is
-summary_column = "highlights" # column of the output text
-
-# custom instruct prompt start
-prompt_template = f"Summarize the following news article:\n{{input}}\nSummary:\n"
-
+import json
+import argparse
+from argparse import ArgumentParser
 from datasets import load_dataset
 from transformers import AutoTokenizer
+import torch
 import numpy as np
 import os
 
-# Load dataset from the hub
-dataset = load_dataset(dataset_id,name=dataset_config)
-# Load tokenizer of FLAN-t5-base
-tokenizer = AutoTokenizer.from_pretrained(model_id)
+# Functions 
+def shuffled_indices(dataset, random_seed):
+    num_samples = len(dataset)
+    generator = torch.Generator()
+    generator.manual_seed(random_seed)
+    return torch.randperm(num_samples, generator=generator).tolist()
 
-print(f"Train dataset size: {len(dataset['train'])}")
-print(f"Test dataset size: {len(dataset['test'])}")
+def subsample(dataset, n_obs=None, random_seed=42):
+    num_samples = len(dataset)
+    indices = shuffled_indices(dataset, random_seed)
+    indices = indices[:n_obs]
+    return dataset.select(indices)
 
-# Train dataset size: 287113
-# Test dataset size: 11490
+# 0. Getting configurations
+parser = ArgumentParser()
+parser.add_argument('--config', default=None, type=str)
+arg_ = parser.parse_args()
+if arg_.config is None:
+    raise NameError("Include a config file in the argument please.")
+config_path = arg_.config
+with open(config_path) as config_file:
+    config = json.load(config_file)
+config = argparse.Namespace(**config)
+if not os.path.exists(config.save_dataset_path): # Make directory path if does not exist
+    os.makedirs(config.save_dataset_path)
 
-prompt_lenght = len(tokenizer(prompt_template.format(input=""))["input_ids"])
-max_sample_length = tokenizer.model_max_length - prompt_lenght
-print(f"Prompt length: {prompt_lenght}")
-print(f"Max input length: {max_sample_length}")
+# 0-1. Check whether the number of train & eval datasets given are aligned
+if len(config.train_datasets) == len(config.train_dataset_configs) == len(config.train_instances) == len(config.train_input_column) == len(config.train_output_column):
+    train_dataset_num = len(config.train_datasets)
+    print(f'The same number of training datasets given: {train_dataset_num}')
+else:
+    raise NameError("Please provide the same number of entries for the train datasets")
+if len(config.eval_datasets) == len(config.eval_dataset_configs) == len(config.eval_instances) == len(config.eval_input_column) == len(config.eval_output_column):
+    eval_dataset_num = len(config.eval_datasets)
+    print(f'The same number of evaluation datasets given: {eval_dataset_num}')
+else:
+    raise NameError("Please provide the same number of entries for the eval datasets")
 
-# Prompt length: 12
-# Max input length: 500
-
-from datasets import concatenate_datasets
-import numpy as np
-
-# The maximum total input sequence length after tokenization.
-# Sequences longer than this will be truncated, sequences shorter will be padded.
-tokenized_inputs = concatenate_datasets([dataset["train"], dataset["test"]]).map(lambda x: tokenizer(x[text_column], truncation=True), batched=True, remove_columns=[text_column, summary_column])
-max_source_length = max([len(x) for x in tokenized_inputs["input_ids"]])
-max_source_length = min(max_source_length, max_sample_length)
-print(f"Max source length: {max_source_length}")
-
-# The maximum total sequence length for target text after tokenization.
-# Sequences longer than this will be truncated, sequences shorter will be padded."
-tokenized_targets = concatenate_datasets([dataset["train"], dataset["test"]]).map(lambda x: tokenizer(x[summary_column], truncation=True), batched=True, remove_columns=[text_column, summary_column])
-target_lenghts = [len(x) for x in tokenized_targets["input_ids"]]
-# use 95th percentile as max target length
-max_target_length = int(np.percentile(target_lenghts, 95))
-print(f"Max target length: {max_target_length}")
-
-def preprocess_function(sample, padding="max_length"):
-    # created prompted input
-    inputs = [prompt_template.format(input=item) for item in sample[text_column]]
-
-    # tokenize inputs
-    model_inputs = tokenizer(inputs, max_length=max_source_length, padding=padding, truncation=True)
-
-    # Tokenize targets with the `text_target` keyword argument
-    labels = tokenizer(text_target=sample[summary_column], max_length=max_target_length, padding=padding, truncation=True)
-
-    # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
-    # padding in the loss.
-    if padding == "max_length":
-        labels["input_ids"] = [
-            [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-        ]
-
-    model_inputs["labels"] = labels["input_ids"]
-    return model_inputs
-
-# process dataset
-tokenized_dataset = dataset.map(preprocess_function, batched=True, remove_columns=list(dataset["train"].features))
-
-# save dataset to disk
-tokenized_dataset["train"].save_to_disk(os.path.join(save_dataset_path,"train"))
-tokenized_dataset["test"].save_to_disk(os.path.join(save_dataset_path,"eval"))
+# 1. Loading & Saving Training Datasets
+train_entries = []
+for i in range(train_dataset_num):  
+    # Load dataset from the hub
+    train_dataset = load_dataset(config.train_datasets[i], name=config.train_dataset_configs[i], split="train")
+    if config.train_instances[i] > len(train_dataset):
+        raise Exception('The number of designated instances exceeds the original dataset size')
+    print(f"{config.train_datasets[i]} | Original train dataset size: {len(train_dataset)}, Limit size to: {config.train_instances[i]}")
+    train_dataset = subsample(train_dataset, config.train_instances[i])
+    for row in train_dataset:
+        input_ = row[config.train_input_column[i]]
+        output_ = row[config.train_output_column[i]]
+        entry = {
+            "input": input_,
+            "output": output_
+        }
+        train_entries.append(entry)
+with open(f"{config.save_dataset_path}/train.json", "w") as file:
+    json.dump(train_entries, file)
+    
+# 2. Loading & Saving Evaluation Dataset
+eval_entries = []
+for i in range(eval_dataset_num):  
+    # Load dataset from the hub
+    eval_dataset = load_dataset(config.eval_datasets[i], name=config.eval_dataset_configs[i], split="validation")
+    if config.eval_instances[i] > len(eval_dataset):
+        raise Exception('The number of designated instances exceeds the original dataset size')
+    print(f"{config.eval_datasets[i]} | Original evaluation dataset size: {len(eval_dataset)}, Limit size to: {config.eval_instances[i]}")
+    eval_dataset = subsample(eval_dataset, config.eval_instances[i])
+    if config.eval_type[i] == 'generation':
+        for row in eval_dataset:
+            input_ = row[config.eval_input_column[i]]
+            output_ = row[config.eval_output_column[i]]
+            entry = {
+                "input": input_,
+                "output": output_
+            }
+            eval_entries.append(entry)
+    else:
+        raise Exception(f'Currently {config.eval_type} format is not yet implemented..')
+with open(f"{config.save_dataset_path}/eval.json", "w") as file:
+    json.dump(eval_entries, file)

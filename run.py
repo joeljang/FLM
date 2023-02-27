@@ -1,5 +1,7 @@
 import os
 import argparse
+from argparse import ArgumentParser
+import json
 import numpy as np
 from transformers import (
     AutoModelForSeq2SeqLM,
@@ -7,14 +9,100 @@ from transformers import (
     AutoTokenizer,
     set_seed,
 )
-from datasets import load_from_disk
+from datasets import Dataset
 import torch
 import evaluate
 import nltk
 import numpy as np
+import multiprocessing
+import functools
 
 from huggingface_hub import HfFolder
 from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
+
+def check_args(config):
+    """Check the configurations"""
+    # REQUIRED configs
+    if 'mode' not in config:
+        raise Exception('Please provide the mode of the run. Choose between `train` & `eval`.')
+    if 'model_id' not in config:
+        raise Exception('Please provide the model_id provide in huggingface models')
+    if 'dataset_path' not in config:
+        raise Exception('Please provide the dataset path that contains train.json & eval.json')
+    if 'epochs' not in config:
+        raise Exception('Please provide the epoch of the training data')
+    
+    # DEFAULT values for other configs
+    if 'repository_id' not in config:
+        config.repository_id = None # Hugging Face Repository id for uploading models
+    if 'hf_token' not in config:
+        config.hf_token = HfFolder.get_token() # Token to use for uploading models to Hugging Face Hub.
+    if 'per_device_train_batch_size' not in config:
+        config.per_device_train_batch_size = 8 # Batch size to use for training.
+    if 'per_device_eval_batch_size' not in config:
+        config.per_device_eval_batch_size = 8 # Batch size to use for testing.
+    if 'max_input_length' not in config:
+        config.max_input_length = 512 # Maximum length to use for generation
+    if 'max_output_length' not in config:
+        config.max_output_length = 128 # Maximum length to use for generation
+    if 'generation_num_beams' not in config:
+        config.generation_num_beams = 1 # Number of beams to use for generation
+    if 'lr' not in config:
+        config.lr = 1e-4 # Learning rate to use for training.
+    if 'seed' not in config:
+        config.seed = 42 # Random seed for all things random
+    if 'deepspeed' not in config:
+        config.deepspeed = "gpu_configs/z3_bf16.json" # Directory to the deepspeed configuration. Details in https://www.deepspeed.ai/tutorials/zero/
+    if 'gradient_checkpointing' not in config:
+        config.gradient_checkpointing = True # Whether to use gradient checkpointing. 
+    if 'bf16' not in config:
+        config.bf16 = True if torch.cuda.get_device_capability()[0] == 8 else False # Whether to use bf16.
+    if 'num_workers' not in config:
+        config.num_workers = multiprocessing.cpu_count()
+    return config
+
+def preprocess_function(examples, config, tokenizer): 
+    model_inputs = tokenizer(examples['source'], max_length=config.max_input_length, padding=padding, truncation=True)
+    # Setup the tokenizer for targets
+    with tokenizer.as_target_tokenizer():
+        labels = tokenizer(examples['target'], max_length=max_output_length, padding=padding, truncation=True)
+    # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore padding in the loss.
+    if padding == "max_length":
+        labels["input_ids"] = [
+            [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
+        ]
+    model_inputs["labels"] = labels["input_ids"]
+    return model_inputs
+
+def load_train_dataset(dataset, config, tokenizer):
+    tmp_dict = {"source":[],"target":[]}
+    for entry in dataset:
+        tmp_dict['source'].append(entry['input'])
+        tmp_dict['target'].append(entry['output'])
+    dataset = Dataset.from_dict(tmp_dict)
+    dataset = dataset.map(
+        functools.partial(preprocess_function, config=config, tokenizer=tokenizer),
+        batched=True,
+        num_proc=config.num_workers,
+    )
+    return dataset
+
+def load_eval_dataset(dataset, config, tokenizer):
+    tmp_dict = {"source":[],"target":[], "label_list":[]}
+    for entry in dataset:
+        source = entry['input']
+        target = entry['output']
+        label_list = None # Not yet implemented
+        tmp_dict['source'].append(entry['input'])
+        tmp_dict['target'].append(entry['output'])
+        tmp_dict['label_list'].append(None)
+    dataset = Dataset.from_dict(tmp_dict)
+    dataset = dataset.map(
+        functools.partial(preprocess_function, config=config, tokenizer=tokenizer),
+        batched=True,
+        num_proc=config.num_workers
+    )
+    return dataset
 
 nltk.download("punkt", quiet=True)
 
@@ -30,7 +118,6 @@ gen_kwargs = {
     "num_beams": 4,
 }
 
-
 def postprocess_text(preds, labels):
     preds = [pred.strip() for pred in preds]
     labels = [label.strip() for label in labels]
@@ -41,55 +128,23 @@ def postprocess_text(preds, labels):
 
     return preds, labels
 
-
-def parse_arge():
-    """Parse the arguments."""
-    parser = argparse.ArgumentParser()
-    # add model id and dataset path argument
-    parser.add_argument("--model_id", type=str, default="google/flan-t5-xl", help="Model id to use for training.")
-    parser.add_argument("--dataset_path", type=str, default="data", help="Path to the already processed dataset.")
-    parser.add_argument(
-        "--repository_id", type=str, default=None, help="Hugging Face Repository id for uploading models"
-    )
-    # add training hyperparameters for epochs, batch size, learning rate, and seed
-    parser.add_argument("--epochs", type=int, default=3, help="Number of epochs to train for.")
-    parser.add_argument("--per_device_train_batch_size", type=int, default=8, help="Batch size to use for training.")
-    parser.add_argument("--per_device_eval_batch_size", type=int, default=8, help="Batch size to use for testing.")
-    parser.add_argument("--generation_max_length", type=int, default=140, help="Maximum length to use for generation")
-    parser.add_argument("--generation_num_beams", type=int, default=4, help="Number of beams to use for generation.")
-    parser.add_argument("--lr", type=float, default=3e-3, help="Learning rate to use for training.")
-    parser.add_argument("--seed", type=int, default=42, help="Seed to use for training.")
-    parser.add_argument("--deepspeed", type=str, default=None, help="Path to deepspeed config file.")
-    parser.add_argument("--gradient_checkpointing", type=bool, default=True, help="Path to deepspeed config file.")
-    parser.add_argument(
-        "--bf16",
-        type=bool,
-        default=True if torch.cuda.get_device_capability()[0] == 8 else False,
-        help="Whether to use bf16.",
-    )
-    parser.add_argument(
-        "--hf_token",
-        type=str,
-        default=HfFolder.get_token(),
-        help="Token to use for uploading models to Hugging Face Hub.",
-    )
-    args = parser.parse_known_args()
-    return args
-
-
-def training_function(args):
-    # set seed
+def training_run(args):
+    # Set Random Seed :)
     set_seed(args.seed)
-
-    # load dataset from disk and tokenizer
-    train_dataset = load_from_disk(os.path.join(args.dataset_path, "train"))
-    eval_dataset = load_from_disk(os.path.join(args.dataset_path, "eval"))
-    tokenizer = AutoTokenizer.from_pretrained(args.model_id)
-    # load model from the hub
+    
+    # Load model & tokenizer from huggingface
     model = AutoModelForSeq2SeqLM.from_pretrained(
         args.model_id,
         use_cache=False if args.gradient_checkpointing else True,  # this is needed for gradient checkpointing
     )
+    tokenizer = AutoTokenizer.from_pretrained(args.model_id)
+
+    # Load train & eval datasets
+    with open(f"{args.dataset_path}/train.json", 'r') as f:
+        train_dataset = load_train_dataset(json.load(f), config=args, tokenizer = tokenizer)
+    with open(f"{args.dataset_path}/eval.json", 'r') as f:
+        eval_dataset = load_eval_dataset(json.load(f), config=args, tokenizer = tokenizer)
+
 
     # we want to ignore tokenizer pad token in the loss
     label_pad_token_id = -100
@@ -169,11 +224,20 @@ def training_function(args):
     if args.repository_id:
         trainer.push_to_hub()
 
-
 def main():
-    args, _ = parse_arge()
-    training_function(args)
-
+    parser = ArgumentParser()
+    parser.add_argument('--config', default=None, type=str)
+    arg_ = parser.parse_args()
+    if arg_.config is None:
+        raise NameError("Include a config file in the argument please.")
+    config_path = arg_.config
+    with open(config_path) as config_file:
+        config = json.load(config_file)
+    config = check_args(argparse.Namespace(**config))
+    if config.mode == 'train':
+        training_run(config)
+    else:
+        raise Exception(f'{config.mode} not yet implemented..')
 
 if __name__ == "__main__":
     main()
