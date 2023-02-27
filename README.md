@@ -46,7 +46,7 @@ python make_dataset_pt.py --config dataset_configs/pretrain/ko.json
 
 Run the following code for preparing fine-tuning & evaluation data
 ```
-python make_dataset_pt.py --config dataset_configs/finetune/basic.json
+python make_dataset_ft.py --config dataset_configs/finetune/basic.json
 ```
 
 Let the code do its magic :star:. 
