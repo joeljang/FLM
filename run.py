@@ -85,7 +85,9 @@ def load_train_dataset(dataset, config, tokenizer):
     dataset = dataset.map(
         functools.partial(preprocess_function, config=config, tokenizer=tokenizer, padding='max_length'),
         batched=True,
+        batch_size=config.per_device_train_batch_size,
         num_proc=config.num_workers,
+        load_from_cache_file=True
     )
     return dataset
 
@@ -99,7 +101,9 @@ def load_eval_dataset(dataset, config, tokenizer):
     dataset = dataset.map(
         functools.partial(preprocess_function, config=config, tokenizer=tokenizer, padding='max_length'),
         batched=True,
-        num_proc=config.num_workers
+        batch_size=config.per_device_eval_batch_size,
+        num_proc=config.num_workers,
+        load_from_cache_file=True
     )
     return dataset
 
@@ -142,11 +146,11 @@ def training_run(args):
     with open(f"{args.dataset_path}/train.json", 'r') as f:
         train_dataset = load_train_dataset(json.load(f), config=args, tokenizer = tokenizer)
     with open(f"{args.dataset_path}/eval.json", 'r') as f:
-        eval_datasets = []
+        eval_datasets = {}
         all_evals = json.load(f)
         for key in all_evals:
             eval_dataset = load_eval_dataset(all_evals[key], config=args, tokenizer = tokenizer)
-            eval_datasets.append(eval_dataset)
+            eval_datasets[key] = eval_dataset
 
     # we want to ignore tokenizer pad token in the loss
     label_pad_token_id = -100
@@ -158,6 +162,9 @@ def training_run(args):
     # Define compute metrics function
     def compute_metrics(eval_preds):
         preds, labels = eval_preds
+        print(preds, labels)
+        print(f'we reached here!!')
+        exit()
         if isinstance(preds, tuple):
             preds = preds[0]
         decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)

@@ -123,6 +123,129 @@ class Seq2SeqTrainer(Trainer):
 
         return super().predict(test_dataset, ignore_keys=ignore_keys, metric_key_prefix=metric_key_prefix)
 
+def verbalizer_compute_loss(self, model, inputs, return_outputs=False):
+    """
+    How the loss is computed by Trainer. By default, all models return the loss in the first element.
+    Subclass and override for custom behavior.
+    """
+    print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
+    print(inputs)
+    print('^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^')
+    if "labels" in inputs:
+        #labels = inputs.pop("labels")
+        labels = inputs["labels"]
+        labels[labels[:,:] == -100] = self.tokenizer.pad_token_id
+    else:
+        labels = None
+    
+    prob_list = []
+    loss_list = []
+    logits_list = []
+    with torch.no_grad():
+        transposed_labels_list = [list(x) for x in zip(*inputs['labels_list'])]
+        
+        for index in range(len(transposed_labels_list)):
+            option = transposed_labels_list
+            option_ = self.tokenizer.batch_encode_plus(option[index], max_length=self.data_args.val_max_target_length,
+                                                    padding=True, truncation=True, return_tensors="pt")
+            lm_labels = option_["input_ids"].expand(len(inputs['input_ids']),-1)
+            lm_labels[lm_labels[:,:] == self.tokenizer.pad_token_id] = -100
+            outputs = model(
+                input_ids = inputs['input_ids'].cuda(),
+                attention_mask = inputs['attention_mask'].cuda(),
+                labels=lm_labels.cuda(),
+                decoder_attention_mask = option_["attention_mask"].cuda(),
+                #task=inputs['task']
+            )
+            logits = option_["attention_mask"].cuda().unsqueeze(-1) * torch.log_softmax(outputs.logits, dim=-1)
+            lm_labels = lm_labels.cuda().unsqueeze(-1)
+            seq_token_log_prob = torch.zeros(lm_labels.shape)
+            
+            for i in range(lm_labels.size(0)):
+                for j in range(lm_labels.size(1)):
+                    seq_token_log_prob[i][j][0] = logits[i][j][lm_labels[i][j][0]]
+            seq_log_prob = seq_token_log_prob.squeeze(dim=-1).sum(dim=-1)
+            loss_list.append(outputs.loss)
+            logits_list.append(logits)
+            prob_list.append(seq_log_prob)
+            
+        concat = torch.cat(prob_list).view(-1,len(inputs['input_ids']))
+        # TODO : Check if argmax or argmin
+        prediction_indices = concat.argmax(dim=0)
+        predictions = [inputs['labels_list'][elem_num][i.item()] for elem_num, i in enumerate(prediction_indices)]
+        predictions = self.tokenizer.batch_encode_plus(predictions, max_length=self.data_args.val_max_target_length,
+                                                    padding=True, truncation=True, return_tensors="pt")
+        predictions = predictions['input_ids']
+
+        loss = torch.mean(torch.stack(loss_list),dim=0)
+        
+    return (loss, predictions, labels) if return_outputs else loss
+
+    def verbalizer_prediction_step(
+        self,
+        model: nn.Module,
+        inputs: Dict[str, Union[torch.Tensor, Any]],
+        prediction_loss_only: bool,
+        ignore_keys: Optional[List[str]] = None,
+    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        has_labels = all(inputs.get(k) is not None for k in self.label_names)
+        inputs = self._prepare_inputs(inputs)
+        if ignore_keys is None:
+            if hasattr(self.model, "config"):
+                ignore_keys = getattr(self.model.config, "keys_to_ignore_at_inference", [])
+            else:
+                ignore_keys = []
+
+        # labels may be popped when computing the loss (label smoothing for instance) so we grab them first.
+        if has_labels:
+            labels = nested_detach(tuple(inputs.get(name) for name in self.label_names))
+            if len(labels) == 1:
+                labels = labels[0]
+        else:
+            labels = None
+
+        with torch.no_grad():
+            if is_sagemaker_mp_enabled():
+                raw_outputs = smp_forward_only(model, inputs)
+                if has_labels:
+                    if isinstance(raw_outputs, dict):
+                        loss_mb = raw_outputs["loss"]
+                        logits_mb = tuple(v for k, v in raw_outputs.items() if k not in ignore_keys + ["loss"])
+                    else:
+                        loss_mb = raw_outputs[0]
+                        logits_mb = raw_outputs[1:]
+
+                    loss = loss_mb.reduce_mean().detach().cpu()
+                    logits = smp_nested_concat(logits_mb)
+                else:
+                    loss = None
+                    if isinstance(raw_outputs, dict):
+                        logits_mb = tuple(v for k, v in raw_outputs.items() if k not in ignore_keys)
+                    else:
+                        logits_mb = raw_outputs
+                    logits = smp_nested_concat(logits_mb)
+            else:
+                if has_labels:
+                    
+                    loss, predictions, labels = self.verbalizer_compute_loss(model, inputs, return_outputs=True)
+                    loss = loss.type(torch.FloatTensor)
+                    loss = loss.mean().detach()
+
+                    outputs = predictions
+
+                else:
+                    loss = None
+                    outputs = model(**inputs)
+                
+                    # TODO: this needs to be fixed and made cleaner later.
+                    if self.args.past_index >= 0:
+                        self._past = outputs[self.args.past_index - 1]
+
+        if prediction_loss_only:
+            return (loss, None, None)
+    
+        return (loss, outputs, labels)
+
     def prediction_step(
         self,
         model: nn.Module,
@@ -148,7 +271,9 @@ class Seq2SeqTrainer(Trainer):
         """
         if 'labels_list' in inputs:
             print(f'Implement verbalizer code here..')
+            loss, model_predictions, labels = self.verbalizer_prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
             exit()
+            return (loss, model_predictions, labels)
         else:
             print(inputs)
             print('hmm..')

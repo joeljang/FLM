@@ -1,2 +1,4 @@
 /flan-t5-xxl
 /data
+/mt0-small
+*.pyc
