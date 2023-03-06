@@ -31,9 +31,13 @@ pip install "transformers==4.26.0" "datasets==2.9.0" "accelerate==0.16.0" "evalu
 pip install "deepspeed==0.8.0" ninja --upgrade
 # install additional dependencies needed for training
 pip install rouge-score nltk py7zr tensorboard
-# install promptsource for making prompted training instances
-pip install promptsource
 pip install sentencepiece
+```
+Also, get promptsource (currently getting the version that supports xP3)
+```
+git clone -b tr13 https://github.com/Muennighoff/promptsource.git
+cd promptsource
+pip install -e .
 ```
 
 This code-base is heavily based on [https://www.philschmid.de/fine-tune-flan-t5-deepspeed](https://www.philschmid.de/fine-tune-flan-t5-deepspeed)

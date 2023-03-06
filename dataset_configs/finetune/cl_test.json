@@ -1,11 +1,15 @@
 {
-    "use_promptsource": false,
+    "use_promptsource": true,
     "make_train": true,
     "train_datasets": ["cnn_dailymail"],
     "train_dataset_configs": ["3.0.0"],
     "train_instances": [100],
     "train_input_column": ["article"],
     "train_output_column": ["highlights"],
-    "make_eval": false,
+    "make_eval": true,
+    "eval_datasets": ["winogrande"],
+    "eval_dataset_configs": ["winogrande_xl"],
+    "eval_dataset_splits": ["validation"],
+    "eval_instances": [100],
     "save_dataset_path": "data/basic"
 }

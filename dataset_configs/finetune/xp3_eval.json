@@ -1,0 +1,126 @@
+{
+    "save_dataset_path": "data/xp3",
+    "use_promptsource": true,
+    "make_train": false,
+    "train_datasets": null,
+    "train_dataset_configs": null,
+    "train_instances": null,
+    "train_input_column": null,
+    "train_output_column": null,
+    "make_eval": true,
+    "eval_datasets": [
+        {
+            "name": "winogrande",
+            "configs": [
+                "winogrande_xl"
+            ],
+            "splits": [
+                "validation"
+            ],
+            "num_instances": 100
+        },
+        {
+            "name": "Muennighoff/xwinograd",
+            "configs": [
+                "all"
+            ],
+            "splits": [
+                "test"
+            ],
+            "num_instances": 100
+        },
+        {
+            "name": "anli",
+            "configs": [
+                null
+            ],
+            "splits": [
+                "dev_r1",
+                "dev_r2",
+                "dev_r3"
+            ],
+            "num_instances": 100
+        },
+        {
+            "name": "super_glue",
+            "configs": [
+                "cb"
+            ],
+            "splits": [
+                "validation"
+            ],
+            "num_instances": 100
+        },
+        {
+            "name": "super_glue",
+            "configs": [
+                "rte"
+            ],
+            "splits": [
+                "validation"
+            ],
+            "num_instances": 100
+        },
+        {
+            "name": "xnli",
+            "configs": [
+                "all"
+            ],
+            "splits": [
+                "validation"
+            ],
+            "num_instances": 100
+        },
+        {
+            "name": "story_cloze",
+            "configs": [
+                "2016"
+            ],
+            "splits": [
+                "validation"
+            ],
+            "num_instances": 100,
+            "path": "manual/story_2016_val.csv"
+        },
+        {
+            "name": "super_glue",
+            "configs": [
+                "copa"
+            ],
+            "splits": [
+                "validation"
+            ],
+            "num_instances": 100
+        },
+        {
+            "name": "xcopa",
+            "configs": [
+                "et",
+                "ht",
+                "it",
+                "id",
+                "qu",
+                "sw",
+                "zh",
+                "ta",
+                "th",
+                "tr",
+                "vi"
+            ],
+            "splits": [
+                "validation"
+            ],
+            "num_instances": 100
+        },
+        {
+            "name": "juletxara/xstory_cloze",
+            "configs": [
+                "all"
+            ],
+            "splits": [
+                "eval"
+            ],
+            "num_instances": 100
+        }
+    ]
+}

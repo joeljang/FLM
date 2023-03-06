@@ -151,8 +151,8 @@ for row in pretrain_dataset:
         else: # autoregressive language modeling
             input_, output_ = tokenizer.decode(input_, skip_special_tokens=True)
         entry = {
-            "input": input_,
-            "output": output_
+            "source": input_,
+            "target": output_
         }
         train_entries.append(entry)
     continued_text = tokenizer.decode(input_t, skip_special_tokens=True)

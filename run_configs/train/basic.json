@@ -1,6 +1,6 @@
 {
     "mode": "train",
-    "model_id": "google/flan-t5-xl",
+    "model_id": "t5-base",
     "dataset_path":"data/basic",
     "epochs": 1
 }

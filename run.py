@@ -18,7 +18,9 @@ import multiprocessing
 import functools
 
 from huggingface_hub import HfFolder
-from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
+#from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
+from transformers import Seq2SeqTrainingArguments
+from third_party.trainers import Seq2SeqTrainer
 
 def check_args(config):
     """Check the configurations"""
@@ -61,11 +63,11 @@ def check_args(config):
         config.num_workers = multiprocessing.cpu_count()
     return config
 
-def preprocess_function(examples, config, tokenizer): 
+def preprocess_function(examples, config, tokenizer, padding): 
     model_inputs = tokenizer(examples['source'], max_length=config.max_input_length, padding=padding, truncation=True)
     # Setup the tokenizer for targets
-    with tokenizer.as_target_tokenizer():
-        labels = tokenizer(examples['target'], max_length=max_output_length, padding=padding, truncation=True)
+    #with tokenizer.as_target_tokenizer():
+    labels = tokenizer(examples['target'], max_length=config.max_output_length, padding=padding, truncation=True)
     # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore padding in the loss.
     if padding == "max_length":
         labels["input_ids"] = [
@@ -77,28 +79,25 @@ def preprocess_function(examples, config, tokenizer):
 def load_train_dataset(dataset, config, tokenizer):
     tmp_dict = {"source":[],"target":[]}
     for entry in dataset:
-        tmp_dict['source'].append(entry['input'])
-        tmp_dict['target'].append(entry['output'])
+        tmp_dict['source'].append(entry['source'])
+        tmp_dict['target'].append(entry['target'])
     dataset = Dataset.from_dict(tmp_dict)
     dataset = dataset.map(
-        functools.partial(preprocess_function, config=config, tokenizer=tokenizer),
+        functools.partial(preprocess_function, config=config, tokenizer=tokenizer, padding='max_length'),
         batched=True,
         num_proc=config.num_workers,
     )
     return dataset
 
 def load_eval_dataset(dataset, config, tokenizer):
-    tmp_dict = {"source":[],"target":[], "label_list":[]}
+    tmp_dict = {"source":[],"target":[], "labels_list":[]}
     for entry in dataset:
-        source = entry['input']
-        target = entry['output']
-        label_list = None # Not yet implemented
-        tmp_dict['source'].append(entry['input'])
-        tmp_dict['target'].append(entry['output'])
-        tmp_dict['label_list'].append(None)
+        tmp_dict['source'].append(entry['source'])
+        tmp_dict['target'].append(entry['target'])
+        tmp_dict['labels_list'].append(entry['labels_list'])
     dataset = Dataset.from_dict(tmp_dict)
     dataset = dataset.map(
-        functools.partial(preprocess_function, config=config, tokenizer=tokenizer),
+        functools.partial(preprocess_function, config=config, tokenizer=tokenizer, padding='max_length'),
         batched=True,
         num_proc=config.num_workers
     )
@@ -143,8 +142,11 @@ def training_run(args):
     with open(f"{args.dataset_path}/train.json", 'r') as f:
         train_dataset = load_train_dataset(json.load(f), config=args, tokenizer = tokenizer)
     with open(f"{args.dataset_path}/eval.json", 'r') as f:
-        eval_dataset = load_eval_dataset(json.load(f), config=args, tokenizer = tokenizer)
-
+        eval_datasets = []
+        all_evals = json.load(f)
+        for key in all_evals:
+            eval_dataset = load_eval_dataset(all_evals[key], config=args, tokenizer = tokenizer)
+            eval_datasets.append(eval_dataset)
 
     # we want to ignore tokenizer pad token in the loss
     label_pad_token_id = -100
@@ -180,7 +182,7 @@ def training_run(args):
         per_device_train_batch_size=args.per_device_train_batch_size,
         per_device_eval_batch_size=args.per_device_eval_batch_size,
         predict_with_generate=True,
-        generation_max_length=args.generation_max_length,
+        generation_max_length=args.max_output_length,
         generation_num_beams=args.generation_num_beams,
         fp16=False,  # T5 overflows with fp16
         bf16=args.bf16,  # Use BF16 if available
@@ -209,7 +211,7 @@ def training_run(args):
         model=model,
         args=training_args,
         train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
+        eval_dataset=eval_datasets,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
     )
@@ -220,6 +222,7 @@ def training_run(args):
     # Save our tokenizer and create model card
     tokenizer.save_pretrained(output_dir)
     trainer.create_model_card()
+    
     # Push the results to the hub
     if args.repository_id:
         trainer.push_to_hub()
@@ -227,7 +230,7 @@ def training_run(args):
 def main():
     parser = ArgumentParser()
     parser.add_argument('--config', default=None, type=str)
-    arg_ = parser.parse_args()
+    arg_, _ = parser.parse_known_args()
     if arg_.config is None:
         raise NameError("Include a config file in the argument please.")
     config_path = arg_.config

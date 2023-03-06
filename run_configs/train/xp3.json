@@ -1,0 +1,6 @@
+{
+    "mode": "train",
+    "model_id": "bigscience/mt0-small",
+    "dataset_path":"data/xp3",
+    "epochs": 1
+}
