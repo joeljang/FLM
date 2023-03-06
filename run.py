@@ -9,7 +9,7 @@ from transformers import (
     AutoTokenizer,
     set_seed,
 )
-from datasets import Dataset
+from datasets import Dataset, load_from_disk
 import torch
 import evaluate
 import nltk
@@ -63,50 +63,6 @@ def check_args(config):
         config.num_workers = multiprocessing.cpu_count()
     return config
 
-def preprocess_function(examples, config, tokenizer, padding): 
-    model_inputs = tokenizer(examples['source'], max_length=config.max_input_length, padding=padding, truncation=True)
-    # Setup the tokenizer for targets
-    #with tokenizer.as_target_tokenizer():
-    labels = tokenizer(examples['target'], max_length=config.max_output_length, padding=padding, truncation=True)
-    # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore padding in the loss.
-    if padding == "max_length":
-        labels["input_ids"] = [
-            [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
-        ]
-    model_inputs["labels"] = labels["input_ids"]
-    return model_inputs
-
-def load_train_dataset(dataset, config, tokenizer):
-    tmp_dict = {"source":[],"target":[]}
-    for entry in dataset:
-        tmp_dict['source'].append(entry['source'])
-        tmp_dict['target'].append(entry['target'])
-    dataset = Dataset.from_dict(tmp_dict)
-    dataset = dataset.map(
-        functools.partial(preprocess_function, config=config, tokenizer=tokenizer, padding='max_length'),
-        batched=True,
-        batch_size=config.per_device_train_batch_size,
-        num_proc=config.num_workers,
-        load_from_cache_file=True
-    )
-    return dataset
-
-def load_eval_dataset(dataset, config, tokenizer):
-    tmp_dict = {"source":[],"target":[], "labels_list":[]}
-    for entry in dataset:
-        tmp_dict['source'].append(entry['source'])
-        tmp_dict['target'].append(entry['target'])
-        tmp_dict['labels_list'].append(entry['labels_list'])
-    dataset = Dataset.from_dict(tmp_dict)
-    dataset = dataset.map(
-        functools.partial(preprocess_function, config=config, tokenizer=tokenizer, padding='max_length'),
-        batched=True,
-        batch_size=config.per_device_eval_batch_size,
-        num_proc=config.num_workers,
-        load_from_cache_file=True
-    )
-    return dataset
-
 nltk.download("punkt", quiet=True)
 
 # Metric
@@ -143,13 +99,12 @@ def training_run(args):
     tokenizer = AutoTokenizer.from_pretrained(args.model_id)
 
     # Load train & eval datasets
-    with open(f"{args.dataset_path}/train.json", 'r') as f:
-        train_dataset = load_train_dataset(json.load(f), config=args, tokenizer = tokenizer)
+    train_dataset = load_from_disk(os.path.join(args.dataset_path, "train"))
+    eval_datasets = {}
     with open(f"{args.dataset_path}/eval.json", 'r') as f:
-        eval_datasets = {}
         all_evals = json.load(f)
         for key in all_evals:
-            eval_dataset = load_eval_dataset(all_evals[key], config=args, tokenizer = tokenizer)
+            eval_dataset = load_from_disk(os.path.join(args.dataset_path, key))
             eval_datasets[key] = eval_dataset
 
     # we want to ignore tokenizer pad token in the loss
@@ -162,9 +117,6 @@ def training_run(args):
     # Define compute metrics function
     def compute_metrics(eval_preds):
         preds, labels = eval_preds
-        print(preds, labels)
-        print(f'we reached here!!')
-        exit()
         if isinstance(preds, tuple):
             preds = preds[0]
         decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
