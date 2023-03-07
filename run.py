@@ -9,18 +9,19 @@ from transformers import (
     AutoTokenizer,
     set_seed,
 )
-from datasets import Dataset, load_from_disk
+from datasets import Dataset, load_from_disk, load_metric
 import torch
 import evaluate
 import nltk
 import numpy as np
 import multiprocessing
-import functools
+import wandb
 
 from huggingface_hub import HfFolder
-#from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
 from transformers import Seq2SeqTrainingArguments
 from third_party.trainers import Seq2SeqTrainer
+from third_party.trainers import TaskDataCollatorForSeq2Seq
+from third_party.trainers import PostProcessor
 
 def check_args(config):
     """Check the configurations"""
@@ -33,12 +34,10 @@ def check_args(config):
         raise Exception('Please provide the dataset path that contains train.json & eval.json')
     if 'epochs' not in config:
         raise Exception('Please provide the epoch of the training data')
+    if 'output_dir' not in config:
+        raise Exception('Please provide the output directory to save the log files & model checkpoint')
     
     # DEFAULT values for other configs
-    if 'repository_id' not in config:
-        config.repository_id = None # Hugging Face Repository id for uploading models
-    if 'hf_token' not in config:
-        config.hf_token = HfFolder.get_token() # Token to use for uploading models to Hugging Face Hub.
     if 'per_device_train_batch_size' not in config:
         config.per_device_train_batch_size = 8 # Batch size to use for training.
     if 'per_device_eval_batch_size' not in config:
@@ -61,21 +60,27 @@ def check_args(config):
         config.bf16 = True if torch.cuda.get_device_capability()[0] == 8 else False # Whether to use bf16.
     if 'num_workers' not in config:
         config.num_workers = multiprocessing.cpu_count()
+    
+    # etc.
+    if 'repository_id' not in config:
+        config.repository_id = None # Hugging Face Repository id for uploading models
+    if 'hf_token' not in config:
+        config.hf_token = HfFolder.get_token() # Token to use for uploading models to Hugging Face Hub.
+    if 'wandb' not in config:
+        config.wandb =  False
+    if 'wandb_entity' not in config:
+        config.wandb_entity = 'wkddydpf' # Default wandb entity to log experiments to. Change with your wandb entity
+    if 'wandb_project' not in config:
+        config.wandb_project = 'flm' # Change depending on your project name
+    if 'wandb_run_name' not in config:
+        config.wandb_run_name = 'random' # Provide name to the run
     return config
 
 nltk.download("punkt", quiet=True)
 
 # Metric
-metric = evaluate.load("rouge")
-# evaluation generation args
-gen_kwargs = {
-    "early_stopping": True,
-    "length_penalty": 2.0,
-    "max_new_tokens": 50,
-    "min_length": 30,
-    "no_repeat_ngram_size": 3,
-    "num_beams": 4,
-}
+#metric = evaluate.load("rouge")
+metric = evaluate.load("accuracy")
 
 def postprocess_text(preds, labels):
     preds = [pred.strip() for pred in preds]
@@ -105,37 +110,39 @@ def training_run(args):
         all_evals = json.load(f)
         for key in all_evals:
             eval_dataset = load_from_disk(os.path.join(args.dataset_path, key))
+            key = key.replace('/', '_')
+            print(key, eval_dataset)
             eval_datasets[key] = eval_dataset
 
     # we want to ignore tokenizer pad token in the loss
     label_pad_token_id = -100
     # Data collator
-    data_collator = DataCollatorForSeq2Seq(
+    data_collator = TaskDataCollatorForSeq2Seq(
         tokenizer, model=model, label_pad_token_id=label_pad_token_id, pad_to_multiple_of=8
     )
+
+    def get_accuracy(preds, labels):
+        total_cnt = 0
+        correct = 0
+        for i in range(len(preds)):
+            total_cnt+=1
+            if preds[i] == labels[i]:
+                correct+=1
+        return {'accuracy': correct / total_cnt}
 
     # Define compute metrics function
     def compute_metrics(eval_preds):
         preds, labels = eval_preds
-        if isinstance(preds, tuple):
-            preds = preds[0]
-        decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
-        # Replace -100 in the labels as we can't decode them.
-        labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-        decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
-
-        # Some simple post-processing
-        decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
-
-        result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
+        post_processor = PostProcessor(tokenizer, ignore_pad_token_for_loss=True)
+        decoded_preds, decoded_labels = post_processor.process(preds, labels)
+        result = get_accuracy(preds=decoded_preds, labels=decoded_labels)
         result = {k: round(v * 100, 4) for k, v in result.items()}
-        prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in preds]
-        result["gen_len"] = np.mean(prediction_lens)
+        print(result)
         return result
 
     # Define training args
     # output_dir = args.repository_id if args.repository_id else args.model_id.split("/")[-1]
-    output_dir = args.model_id.split("/")[-1]
+    output_dir = args.output_dir
     training_args = Seq2SeqTrainingArguments(
         output_dir=output_dir,
         per_device_train_batch_size=args.per_device_train_batch_size,
@@ -158,7 +165,7 @@ def training_run(args):
         save_total_limit=2,
         load_best_model_at_end=True,
         # push to hub parameters
-        report_to="tensorboard",
+        report_to="wandb",
         push_to_hub=True if args.repository_id else False,
         hub_strategy="every_save",
         hub_model_id=args.repository_id if args.repository_id else None,
@@ -168,23 +175,31 @@ def training_run(args):
     # Create Trainer instance
     trainer = Seq2SeqTrainer(
         model=model,
+        tokenizer=tokenizer,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_datasets,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
     )
+    if args.mode=='train':
+        print('Starting Training!')
+        trainer.train()
 
-    # Start training
-    trainer.train()
+        # Save our tokenizer and create model card
+        tokenizer.save_pretrained(output_dir)
+        trainer.create_model_card()
 
-    # Save our tokenizer and create model card
-    tokenizer.save_pretrained(output_dir)
-    trainer.create_model_card()
-    
-    # Push the results to the hub
-    if args.repository_id:
-        trainer.push_to_hub()
+        # Push the results to the hub
+        if args.repository_id:
+            trainer.push_to_hub()
+    elif args.mode=='eval':
+        print('Starting Evaluation!')
+        for task, eval_dataset in eval_datasets.items():
+            print(task)
+            trainer.evaluate(eval_dataset = eval_dataset, metric_key_prefix=task, config=args)
+    else:
+        raise Exception('Currently only supporting train & eval.')
 
 def main():
     parser = ArgumentParser()
@@ -196,10 +211,9 @@ def main():
     with open(config_path) as config_file:
         config = json.load(config_file)
     config = check_args(argparse.Namespace(**config))
-    if config.mode == 'train':
-        training_run(config)
-    else:
-        raise Exception(f'{config.mode} not yet implemented..')
+    if config.wandb:
+        wandb.init(entity=config.wandb_entity, project=config.wandb_project, name=config.wandb_run_name)
+    training_run(config)
 
 if __name__ == "__main__":
     main()

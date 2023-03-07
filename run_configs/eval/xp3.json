@@ -1,0 +1,9 @@
+{
+    "wandb": true,
+    "output_dir": "mt0_small",
+    "wandb_run_name": "mt0_small_verbalizer",
+    "mode": "eval",
+    "model_id": "bigscience/mt0-small",
+    "dataset_path":"data/xp3",
+    "epochs": 1
+}

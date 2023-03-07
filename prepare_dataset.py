@@ -69,6 +69,7 @@ def load_train_dataset(dataset, config, tokenizer):
     dataset = dataset.map(
         functools.partial(preprocess_function, config=config, tokenizer=tokenizer, padding='max_length'),
         batched=True,
+        batch_size = config.per_device_train_batch_size,
         num_proc=config.num_workers,
     )
     return dataset
@@ -83,6 +84,7 @@ def load_eval_dataset(dataset, config, tokenizer):
     dataset = dataset.map(
         functools.partial(preprocess_function, config=config, tokenizer=tokenizer, padding='max_length'),
         batched=True,
+        batch_size=config.per_device_eval_batch_size,
         num_proc=config.num_workers
     )
     return dataset
