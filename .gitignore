@@ -3,3 +3,4 @@
 /mt0-small
 *.pyc
 /wandb
+/analyze
