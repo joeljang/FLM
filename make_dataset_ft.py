@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import os
 import random
-from third_party.promptsource.promptsource.templates import DatasetTemplates
+from promptsource.templates import DatasetTemplates
 
 # Functions 
 def shuffled_indices(dataset, random_seed):

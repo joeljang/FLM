@@ -53,7 +53,7 @@ def check_args(config):
     if 'seed' not in config:
         config.seed = 42 # Random seed for all things random
     if 'deepspeed' not in config:
-        config.deepspeed = "gpu_configs/z3_bf16.json" # Directory to the deepspeed configuration. Details in https://www.deepspeed.ai/tutorials/zero/
+        config.deepspeed = "deepspeed_configs/z3_bf16.json" # Directory to the deepspeed configuration. Details in https://www.deepspeed.ai/tutorials/zero/
     if 'gradient_checkpointing' not in config:
         config.gradient_checkpointing = True # Whether to use gradient checkpointing. 
     if 'bf16' not in config:

@@ -41,8 +41,6 @@ git clone -b tr13 https://github.com/Muennighoff/promptsource.git
 cd ..
 ```
 
-This code-base is heavily based on [https://www.philschmid.de/fine-tune-flan-t5-deepspeed](https://www.philschmid.de/fine-tune-flan-t5-deepspeed)
-
 ### 1. Dataset Preparation
 Run the following code for preparing pretraining data 
 ```
@@ -54,18 +52,14 @@ Run the following code for preparing fine-tuning & evaluation data
 python make_dataset_ft.py --config dataset_configs/finetune/basic.json
 ```
 
-Let the code do its magic :star:. 
+### 2. Train or Evaluate any LMs in huggingface
 
-### 2. Now, train the model
+Before training or evaluating, we will tokenize the train/eval dataset before the actaul training. After filling out the configurations in 'run_configs' directory, run the following code for preprocessing the train/eval data
 ```
-deepspeed --num_gpus=4 run.py \
-    --model_id google/flan-t5-xxl \
-    --dataset_path data \
-    --epochs 1 \
-    --per_device_train_batch_size 32 \
-    --per_device_eval_batch_size 32 \
-    --generation_max_length 129 \
-    --lr 1e-4 \
-    --deepspeed gpu_configs/z3_bf16.json
+python preprocess_dataset.py --config run_configs/train/basic.json
 ```
 
+Finally, run the run.py file! Happy training & evaluating :) ('localhost:{num1, num2' to designate the CUDA_VISIBLE_DEVICES=num1, num2. Code will use all GPUs as default)
+```
+deepspeed --include localhost:0 run.py --config run_configs/train/basic.json
+```
