@@ -36,9 +36,7 @@ pip install wandb
 ```
 Also, get promptsource (currently getting the version that supports xP3)
 ```
-cd third_party
-git clone -b tr13 https://github.com/Muennighoff/promptsource.git
-cd ..
+cd third_party; git clone -b tr13 https://github.com/Muennighoff/promptsource.git; cd promptsource; pip install -e .
 ```
 
 This code-base is heavily based on [https://www.philschmid.de/fine-tune-flan-t5-deepspeed](https://www.philschmid.de/fine-tune-flan-t5-deepspeed)
